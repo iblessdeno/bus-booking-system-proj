@@ -4,7 +4,6 @@
 /node_modules
 /.pnp
 .pnp.js
-.yarn/install-state.gz
 
 # testing
 /coverage
@@ -27,6 +26,7 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env
 
 # vercel
 .vercel
@@ -36,12 +36,23 @@ yarn-error.log*
 next-env.d.ts
 
 # firebase
+firebase-config.js
+firebase-admin-sdk.json
 
-.env.local
+# IDE
+.vscode/
+.idea/
 
-# Ignore all .env files
-.env*
+# logs
+logs
+*.log
 
-# But don't ignore .env.example
-!.env.example
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
