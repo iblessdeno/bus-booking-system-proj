@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { TrendingUp, DollarSign, Users, PlusCircle, BookOpen, CreditCard, PieChart as PieChartIcon, Menu, X, Bell, Search } from "lucide-react";
-import { Pie, PieChart, Cell, CartesianGrid, LabelList, Line, LineChart, Label } from "recharts";
+import { Pie, PieChart, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,76 +15,138 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ChartConfig,
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
-const revenueData = [
-  { month: "Jan", revenue: 10000 },
-  { month: "Feb", revenue: 15000 },
-  { month: "Mar", revenue: 12000 },
-  { month: "Apr", revenue: 18000 },
-  { month: "May", revenue: 22000 },
-  { month: "Jun", revenue: 20000 },
-];
-
-const customerData = [
-  { category: "New", count: 120, fill: "hsl(var(--chart-1))" },
-  { category: "Returning", count: 80, fill: "hsl(var(--chart-2))" },
-  { category: "Inactive", count: 50, fill: "hsl(var(--chart-3))" },
-];
-
-const revenueConfig = {
-  revenue: {
-    label: "Revenue",
-    color: "hsl(var(--chart-2))",
+const chartConfig = {
+  visitors: {
+    label: "Bookings",
   },
-} as ChartConfig;
-
-const customerConfig = {
-  count: {
-    label: "Customers",
-  },
-  New: {
-    label: "New",
+  hundred: {
+    label: "$100 Bookings",
     color: "hsl(var(--chart-1))",
   },
-  Returning: {
-    label: "Returning",
+  ten: {
+    label: "$10 Bookings",
     color: "hsl(var(--chart-2))",
   },
-  Inactive: {
-    label: "Inactive",
-    color: "hsl(var(--chart-3))",
-  },
-} as ChartConfig;
+} satisfies ChartConfig;
 
 export default function AnalyticsDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const [customerData, setCustomerData] = useState<{ category: string; count: number; fill: string }[]>([]);
+  const [bookingData, setBookingData] = useState<{ date: string; hundred: number; ten: number }[]>([]);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalCustomers, setTotalCustomers] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState("90d");
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-        setSidebarOpen(false);
-      }
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await Promise.all([fetchCustomerData(), fetchBookingData()]);
+    } catch (err) {
+      console.error("Error fetching data:", err);
+      setError("An error occurred while fetching data. Please try again later.");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
+  const fetchCustomerData = async () => {
+    const bookingsCollection = collection(db, 'bookings');
+    const bookingsSnapshot = await getDocs(bookingsCollection);
+    const customers = bookingsSnapshot.docs.map(doc => doc.data().customerName);
+    const uniqueCustomers = [...new Set(customers)];
+    
+    const newCustomers = uniqueCustomers.length;
+    const returningCustomers = customers.length - newCustomers;
+    
+    const data = [
+      { category: "New", count: newCustomers, fill: "#8884d8" },
+      { category: "Returning", count: returningCustomers, fill: "#82ca9d" },
+    ];
+    
+    setCustomerData(data);
+    setTotalCustomers(uniqueCustomers.length);
+  };
 
-  const totalRevenue = React.useMemo(() => {
-    return revenueData.reduce((acc, curr) => acc + curr.revenue, 0);
-  }, []);
+  const fetchBookingData = async () => {
+    const bookingsCollection = collection(db, 'bookings');
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    
+    const q = query(
+      bookingsCollection,
+      where('date', '>=', sixMonthsAgo.toISOString()),
+      orderBy('date', 'asc')
+    );
+    
+    const bookingsSnapshot = await getDocs(q);
+    const bookings = bookingsSnapshot.docs.map(doc => ({
+      date: new Date(doc.data().date),
+      price: parseFloat(doc.data().price)
+    }));
+    
+    const dailyBookings: { [key: string]: { hundred: number; ten: number } } = {};
+    let total = 0;
+    
+    bookings.forEach(booking => {
+      const dateStr = booking.date.toISOString().split('T')[0];
+      if (!dailyBookings[dateStr]) {
+        dailyBookings[dateStr] = { hundred: 0, ten: 0 };
+      }
+      if (booking.price === 100) {
+        dailyBookings[dateStr].hundred++;
+      } else if (booking.price === 10) {
+        dailyBookings[dateStr].ten++;
+      }
+      total += booking.price;
+    });
+    
+    const data = Object.entries(dailyBookings).map(([date, counts]) => ({
+      date,
+      hundred: counts.hundred,
+      ten: counts.ten
+    }));
+    
+    setBookingData(data);
+    setTotalRevenue(total);
+  };
 
-  const totalCustomers = React.useMemo(() => {
-    return customerData.reduce((acc, curr) => acc + curr.count, 0);
-  }, []);
+  const filteredData = bookingData.filter((item) => {
+    const date = new Date(item.date);
+    const now = new Date();
+    let daysToSubtract = 90;
+    if (timeRange === "30d") {
+      daysToSubtract = 30;
+    } else if (timeRange === "7d") {
+      daysToSubtract = 7;
+    }
+    now.setDate(now.getDate() - daysToSubtract);
+    return date >= now;
+  });
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900">
@@ -174,131 +236,166 @@ export default function AnalyticsDashboard() {
 
         {/* Main Content */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900 p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Revenue Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue Overview</CardTitle>
-                <CardDescription>January - June 2024</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={revenueConfig}>
-                  <LineChart
-                    data={revenueData}
-                    margin={{
-                      top: 24,
-                      right: 24,
-                      left: 24,
-                      bottom: 24,
-                    }}
+          {loading ? (
+            <div className="text-center py-4">Loading...</div>
+          ) : error ? (
+            <div className="text-center py-4 text-red-500">{error}</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Booking Chart */}
+              <Card>
+                <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+                  <div className="grid flex-1 gap-1 text-center sm:text-left">
+                    <CardTitle>Booking Comparison</CardTitle>
+                    <CardDescription>
+                      Comparing $100 and $10 bookings
+                    </CardDescription>
+                  </div>
+                  <Select value={timeRange} onValueChange={setTimeRange}>
+                    <SelectTrigger
+                      className="w-[160px] rounded-lg sm:ml-auto"
+                      aria-label="Select a value"
+                    >
+                      <SelectValue placeholder="Last 3 months" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="90d" className="rounded-lg">
+                        Last 3 months
+                      </SelectItem>
+                      <SelectItem value="30d" className="rounded-lg">
+                        Last 30 days
+                      </SelectItem>
+                      <SelectItem value="7d" className="rounded-lg">
+                        Last 7 days
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </CardHeader>
+                <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                  <ChartContainer
+                    config={chartConfig}
+                    className="aspect-auto h-[250px] w-full"
                   >
-                    <CartesianGrid vertical={false} />
-                    <ChartTooltip
-                      content={
-                        <ChartTooltipContent
-                          indicator="line"
-                          nameKey="revenue"
-                          hideLabel
-                        />
-                      }
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="revenue"
-                      stroke="hsl(var(--chart-2))"
-                      strokeWidth={2}
-                      dot={{ fill: "hsl(var(--chart-2))" }}
-                    >
-                      <LabelList
-                        dataKey="revenue"
-                        position="top"
-                        formatter={(value: number) => `$${value.toLocaleString()}`}
-                      />
-                    </Line>
-                  </LineChart>
-                </ChartContainer>
-              </CardContent>
-              <CardFooter className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-4 w-4" />
-                  <span className="font-medium">Total Revenue:</span>
-                  <span>${totalRevenue.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center gap-2 text-green-500">
-                  <TrendingUp className="h-4 w-4" />
-                  <span>Up 15% from last month</span>
-                </div>
-              </CardFooter>
-            </Card>
-
-            {/* Customer Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Customer Breakdown</CardTitle>
-                <CardDescription>Current Month</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer
-                  config={customerConfig}
-                  className="mx-auto aspect-square max-h-[250px]"
-                >
-                  <PieChart>
-                    <ChartTooltip
-                      content={<ChartTooltipContent hideLabel />}
-                    />
-                    <Pie
-                      data={customerData}
-                      dataKey="count"
-                      nameKey="category"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={2}
-                    >
-                      {customerData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                      <Label
-                        content={(props) => {
-                          const { viewBox } = props;
-                          if (!viewBox) return null;
-
-                          const { cx, cy } = viewBox;
-
-                          return (
-                            <text
-                              x={cx}
-                              y={cy}
-                              fill="var(--chart-text)"
-                              textAnchor="middle"
-                              dominantBaseline="central"
-                            >
-                              <tspan x={cx} dy="-0.5em" fontSize="2em" fontWeight="bold">
-                                {totalCustomers}
-                              </tspan>
-                              <tspan x={cx} dy="1.5em" fontSize="1em">
-                                Total Customers
-                              </tspan>
-                            </text>
-                          );
+                    <AreaChart data={filteredData}>
+                      <defs>
+                        <linearGradient id="fillHundred" x1="0" y1="0" x2="0" y2="1">
+                          <stop
+                            offset="5%"
+                            stopColor="var(--color-hundred)"
+                            stopOpacity={0.8}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="var(--color-hundred)"
+                            stopOpacity={0.1}
+                          />
+                        </linearGradient>
+                        <linearGradient id="fillTen" x1="0" y1="0" x2="0" y2="1">
+                          <stop
+                            offset="5%"
+                            stopColor="var(--color-ten)"
+                            stopOpacity={0.8}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="var(--color-ten)"
+                            stopOpacity={0.1}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        minTickGap={32}
+                        tickFormatter={(value) => {
+                          const date = new Date(value);
+                          return date.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          });
                         }}
                       />
-                    </Pie>
-                  </PieChart>
-                </ChartContainer>
-              </CardContent>
-              <CardFooter className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  <span className="font-medium">Total Customers:</span>
-                  <span>{totalCustomers.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center gap-2 text-green-500">
-                  <TrendingUp className="h-4 w-4" />
-                  <span>Up 8% from last month</span>
-                </div>
-              </CardFooter>
-            </Card>
-          </div>
+                      <YAxis />
+                      <ChartTooltip
+                        cursor={false}
+                        content={
+                          <ChartTooltipContent
+                            labelFormatter={(value) => {
+                              return new Date(value).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              });
+                            }}
+                            indicator="dot"
+                          />
+                        }
+                      />
+                      <Area
+                        dataKey="ten"
+                        type="monotone"
+                        fill="url(#fillTen)"
+                        stroke="var(--color-ten)"
+                        stackId="1"
+                      />
+                      <Area
+                        dataKey="hundred"
+                        type="monotone"
+                        fill="url(#fillHundred)"
+                        stroke="var(--color-hundred)"
+                        stackId="1"
+                      />
+                      <ChartLegend content={<ChartLegendContent />} />
+                    </AreaChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              {/* Customer Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Customer Breakdown</CardTitle>
+                  <CardDescription>New vs Returning Customers</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {customerData.length > 0 ? (
+                    <div style={{ width: '100%', height: 300 }}>
+                      <ResponsiveContainer>
+                        <PieChart>
+                          <Pie
+                            data={customerData}
+                            dataKey="count"
+                            nameKey="category"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            fill="#8884d8"
+                            label
+                          >
+                            {customerData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.fill} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">No customer data available</div>
+                  )}
+                </CardContent>
+                <CardFooter className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    <span className="font-medium">Total Customers:</span>
+                    <span>{totalCustomers.toLocaleString()}</span>
+                  </div>
+                </CardFooter>
+              </Card>
+            </div>
+          )}
         </main>
       </div>
     </div>
