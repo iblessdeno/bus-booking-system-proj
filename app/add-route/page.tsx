@@ -1,11 +1,9 @@
 'use client';
+
 import React, { useState, useEffect, useRef } from 'react';
-import { useState } from 'react';
-import { collection, addDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-import Link from 'next/link'
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import Link from 'next/link';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -13,7 +11,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
+} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -21,38 +19,43 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { PlusCircle, BookOpen, CreditCard, PieChart, Menu, X, Bell, Search } from "lucide-react"
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { PlusCircle, BookOpen, CreditCard, PieChart, Menu, X, Bell, Search } from "lucide-react";
+import { collection, addDoc, getDocs } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
-// Mock data for current routes
-const currentRoutes = [
-  { id: "R001", name: "New York - Boston", distance: "215 miles", duration: "4h 15m", price: 120.00 },
-  { id: "R002", name: "Los Angeles - San Francisco", distance: "383 miles", duration: "6h 30m", price: 85.00 },
-  { id: "R003", name: "Chicago - Detroit", distance: "283 miles", duration: "4h 45m", price: 95.00 },
-  { id: "R004", name: "Miami - Orlando", distance: "236 miles", duration: "3h 45m", price: 75.00 },
-  { id: "R005", name: "Seattle - Portland", distance: "173 miles", duration: "3h 15m", price: 110.00 },
-]
+interface Route {
+  id: string;
+  name: string;
+  distance: string;
+  duration: string;
+  price: string;
+}
 
 export default function AddRoutePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [newRoute, setNewRoute] = useState({
+    name: '',
+    distance: '',
+    duration: '',
+    price: ''
+  });
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-        setSidebarOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    fetchRoutes();
   }, []);
 
-  const [newRoute, setNewRoute] = useState({ name: '', distance: '', duration: '', price: 0 });
+  const fetchRoutes = async () => {
+    const routesCollection = collection(db, 'routes');
+    const routeSnapshot = await getDocs(routesCollection);
+    const routeList = routeSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Route));
+    setRoutes(routeList);
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setNewRoute({ ...newRoute, [e.target.name]: e.target.value });
@@ -62,9 +65,13 @@ export default function AddRoutePage() {
     e.preventDefault();
     try {
       await addDoc(collection(db, 'routes'), newRoute);
-      // Handle successful addition (e.g., clear form, show success message)
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000); // Hide success message after 3 seconds
+      setNewRoute({ name: '', distance: '', duration: '', price: '' });
+      fetchRoutes(); // Refresh the routes list
     } catch (error) {
-      console.error('Failed to add route:', error);
+      console.error('Error adding route: ', error);
+      alert('Failed to add route');
     }
   };
 
@@ -97,8 +104,7 @@ export default function AddRoutePage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <aside 
-          ref={sidebarRef}
+        <aside
           className={`bg-blue-600 text-white w-64 p-4 flex-shrink-0 transition-all duration-300 ease-in-out ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } md:translate-x-0 md:static fixed inset-y-0 left-0 z-50`}
@@ -156,94 +162,98 @@ export default function AddRoutePage() {
 
         {/* Main Content */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900 p-4">
-          <div className="mb-4">
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add New Route
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                  <DialogTitle>Add New Route</DialogTitle>
-                  <DialogDescription>
-                    Enter the details for the new route. Click save when you're done.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="routeName" className="text-right">
-                      Route Name
-                    </Label>
-                    <Input id="routeName" className="col-span-3" placeholder="e.g. New York - Boston" />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="distance" className="text-right">
-                      Distance
-                    </Label>
-                    <Input id="distance" className="col-span-3" placeholder="e.g. 215 miles" />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="duration" className="text-right">
-                      Duration
-                    </Label>
-                    <Input id="duration" className="col-span-3" placeholder="e.g. 4h 15m" />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="price" className="text-right">
-                      Price ($)
-                    </Label>
-                    <Input id="price" type="number" className="col-span-3" placeholder="0.00" />
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit">Save Route</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
+          <div className="container mx-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="text-3xl font-semibold text-gray-800">Routes</h1>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add New Route
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Add New Route</DialogTitle>
+                    <DialogDescription>
+                      Enter the details for the new route. Click save when you're done.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleSubmit}>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="name" className="text-right">
+                          Route Name
+                        </Label>
+                        <Input id="name" name="name" className="col-span-3" value={newRoute.name} onChange={handleInputChange} />
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="distance" className="text-right">
+                          Distance
+                        </Label>
+                        <Input id="distance" name="distance" className="col-span-3" value={newRoute.distance} onChange={handleInputChange} />
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="duration" className="text-right">
+                          Duration
+                        </Label>
+                        <Input id="duration" name="duration" className="col-span-3" value={newRoute.duration} onChange={handleInputChange} />
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="price" className="text-right">
+                          Price ($)
+                        </Label>
+                        <Input id="price" name="price" type="number" className="col-span-3" value={newRoute.price} onChange={handleInputChange} />
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button type="submit">Save Route</Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Current Routes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[100px]">Route ID</TableHead>
-                      <TableHead>Route Name</TableHead>
-                      <TableHead className="hidden md:table-cell">Distance</TableHead>
-                      <TableHead className="hidden md:table-cell">Duration</TableHead>
-                      <TableHead>Price</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {currentRoutes.map((route) => (
-                      <TableRow key={route.id}>
-                        <TableCell className="font-medium">{route.id}</TableCell>
-                        <TableCell>{route.name}</TableCell>
-                        <TableCell className="hidden md:table-cell">{route.distance}</TableCell>
-                        <TableCell className="hidden md:table-cell">{route.duration}</TableCell>
-                        <TableCell>${route.price.toFixed(2)}</TableCell>
+            {showSuccess && (
+              <Alert className="mb-4 bg-green-100 border-green-400 text-green-700">
+                <AlertTitle>Success</AlertTitle>
+                <AlertDescription>
+                  Route added successfully!
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Current Routes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Route Name</TableHead>
+                        <TableHead>Distance</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Price</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
+                    </TableHeader>
+                    <TableBody>
+                      {routes.map((route) => (
+                        <TableRow key={route.id}>
+                          <TableCell>{route.name}</TableCell>
+                          <TableCell>{route.distance}</TableCell>
+                          <TableCell>{route.duration}</TableCell>
+                          <TableCell>${parseFloat(route.price).toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </main>
-
-        <form onSubmit={handleSubmit}>
-          <input name="name" value={newRoute.name} onChange={handleInputChange} />
-          <input name="distance" value={newRoute.distance} onChange={handleInputChange} />
-          <input name="duration" value={newRoute.duration} onChange={handleInputChange} />
-          <input name="price" value={newRoute.price} onChange={handleInputChange} type="number" />
-          <button type="submit">Add Route</button>
-        </form>
       </div>
     </div>
   )
