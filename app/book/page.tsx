@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { CalendarIcon, PlusCircle, BookOpen, CreditCard, PieChart, Menu, Bell, Search, X } from "lucide-react"
+import { CalendarIcon, PlusCircle, BookOpen, CreditCard, PieChart, Menu, Bell, Search, X, Trash2 } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Calendar } from "@/components/ui/calendar"
@@ -39,7 +39,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { collection, addDoc, getDocs, query, where, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, updateDoc, doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
 interface Route {
@@ -155,6 +155,27 @@ export default function BookPage() {
     } catch (error) {
       console.error('Error confirming booking: ', error);
       alert('Failed to confirm booking');
+    }
+  };
+
+  const handleDeleteBooking = async (bookingId: string) => {
+    if (window.confirm("Are you sure you want to delete this booking?")) {
+      try {
+        const bookingsCollection = collection(db, 'bookings');
+        const q = query(bookingsCollection, where("id", "==", bookingId));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          const bookingDoc = querySnapshot.docs[0];
+          await deleteDoc(doc(db, 'bookings', bookingDoc.id));
+          fetchBookings(); // Refresh the bookings list
+        } else {
+          alert('Booking not found');
+        }
+      } catch (error) {
+        console.error('Error deleting booking: ', error);
+        alert('Failed to delete booking');
+      }
     }
   };
 
@@ -350,10 +371,11 @@ export default function BookPage() {
                       <TableRow>
                         <TableHead className="w-[100px]">Booking ID</TableHead>
                         <TableHead>Customer Name</TableHead>
-                        <TableHead>Route</TableHead>
-                        <TableHead>Date</TableHead>
+                        <TableHead className="hidden md:table-cell">Route</TableHead>
+                        <TableHead className="hidden md:table-cell">Date</TableHead>
                         <TableHead>Price</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -361,8 +383,8 @@ export default function BookPage() {
                         <TableRow key={booking.id}>
                           <TableCell className="font-medium">{booking.id}</TableCell>
                           <TableCell>{booking.customerName}</TableCell>
-                          <TableCell>{booking.route}</TableCell>
-                          <TableCell>{booking.date}</TableCell>
+                          <TableCell className="hidden md:table-cell">{booking.route}</TableCell>
+                          <TableCell className="hidden md:table-cell">{booking.date}</TableCell>
                           <TableCell>${parseFloat(booking.price.toString()).toFixed(2)}</TableCell>
                           <TableCell>
                             <Badge variant={
@@ -371,6 +393,16 @@ export default function BookPage() {
                             }>
                               {booking.status}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleDeleteBooking(booking.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" />
+                              Delete
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
