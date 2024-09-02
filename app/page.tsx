@@ -1,7 +1,7 @@
 'use client';  // Add this line at the top of the file
 
 import React, { useState, useRef, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -22,34 +22,91 @@ import {
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { BarChart, DollarSign, Users, MapPin, PlusCircle, BookOpen, CreditCard, PieChart, Menu, Bell, Search, X } from "lucide-react"
+import { BarChart as BarChartIcon, DollarSign, Users, MapPin, PlusCircle, BookOpen, CreditCard, PieChart, Menu, Bell, Search, X, TrendingUp } from "lucide-react"
 import Link from 'next/link'
+import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
-// Mock data for recent bookings
-const recentBookings = [
-  { id: "B001", customerName: "John Doe", route: "New York - Boston", date: "2023-06-15", status: "Confirmed" },
-  { id: "B002", customerName: "Jane Smith", route: "Los Angeles - San Francisco", date: "2023-06-16", status: "Pending" },
-  { id: "B003", customerName: "Bob Johnson", route: "Chicago - Detroit", date: "2023-06-17", status: "Confirmed" },
-  { id: "B004", customerName: "Alice Brown", route: "Miami - Orlando", date: "2023-06-18", status: "Cancelled" },
-  { id: "B005", customerName: "Charlie Wilson", route: "Seattle - Portland", date: "2023-06-19", status: "Confirmed" },
-]
+interface Booking {
+  id: string;
+  customerName: string;
+  route: string;
+  date: string;
+  status: string;
+  price: number;
+}
 
 export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([])
+  const [totalRevenue, setTotalRevenue] = useState(0)
+  const [totalBookings, setTotalBookings] = useState(0)
+  const [activeRoutes, setActiveRoutes] = useState(0)
+  const [revenueTrend, setRevenueTrend] = useState<{ week: string; hundred: number; ten: number }[]>([])
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-        setSidebarOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
+    fetchDashboardData()
   }, [])
+
+  const fetchDashboardData = async () => {
+    try {
+      const bookingsCollection = collection(db, 'bookings');
+      const recentQuery = query(bookingsCollection, orderBy('date', 'desc'), limit(5));
+      const recentSnapshot = await getDocs(recentQuery);
+      const recentBookingsData = recentSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+      setRecentBookings(recentBookingsData);
+
+      const allBookingsQuery = query(bookingsCollection);
+      const allBookingsSnapshot = await getDocs(allBookingsQuery);
+      const allBookings = allBookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+
+      const revenue = allBookings.reduce((sum, booking) => {
+        const price = parseFloat(booking.price.toString());
+        return sum + (isNaN(price) ? 0 : price);
+      }, 0);
+      setTotalRevenue(revenue);
+      setTotalBookings(allBookings.length);
+
+      const uniqueRoutes = new Set(allBookings.map(booking => booking.route));
+      setActiveRoutes(uniqueRoutes.size);
+
+      // Calculate revenue trend
+      const sixWeeksAgo = new Date();
+      sixWeeksAgo.setDate(sixWeeksAgo.getDate() - 42);
+      const trendQuery = query(bookingsCollection, where('date', '>=', sixWeeksAgo.toISOString()));
+      const trendSnapshot = await getDocs(trendQuery);
+      const trendBookings = trendSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+
+      const weeklyData: { [key: string]: { hundred: number; ten: number } } = {};
+      trendBookings.forEach(booking => {
+        const bookingDate = new Date(booking.date);
+        const weekStart = new Date(bookingDate.setDate(bookingDate.getDate() - bookingDate.getDay()));
+        const weekKey = weekStart.toISOString().split('T')[0];
+        if (!weeklyData[weekKey]) {
+          weeklyData[weekKey] = { hundred: 0, ten: 0 };
+        }
+        if (booking.price === 100) {
+          weeklyData[weekKey].hundred++;
+        } else if (booking.price === 10) {
+          weeklyData[weekKey].ten++;
+        }
+      });
+
+      const trendData = Object.entries(weeklyData).map(([week, data]) => ({
+        week,
+        hundred: data.hundred,
+        ten: data.ten
+      })).sort((a, b) => a.week.localeCompare(b.week));
+
+      setRevenueTrend(trendData);
+
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+      setTotalRevenue(0); // Set to 0 if there's an error
+    }
+  }
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900">
@@ -176,8 +233,9 @@ export default function AdminDashboard() {
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">$45,231.89</div>
-                <p className="text-xs text-muted-foreground">+20.1% from last month</p>
+                <div className="text-2xl font-bold">
+                  ${typeof totalRevenue === 'number' ? totalRevenue.toFixed(2) : '0.00'}
+                </div>
               </CardContent>
             </Card>
             <Card className="col-span-1">
@@ -186,8 +244,7 @@ export default function AdminDashboard() {
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">2,350</div>
-                <p className="text-xs text-muted-foreground">+15% from last month</p>
+                <div className="text-2xl font-bold">{totalBookings}</div>
               </CardContent>
             </Card>
             <Card className="col-span-1">
@@ -196,22 +253,42 @@ export default function AdminDashboard() {
                 <MapPin className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">32</div>
-                <p className="text-xs text-muted-foreground">+2 new routes added</p>
+                <div className="text-2xl font-bold">{activeRoutes}</div>
               </CardContent>
             </Card>
             <Card className="col-span-1">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Revenue Trend</CardTitle>
-                <BarChart className="h-4 w-4 text-muted-foreground" />
+                <BarChartIcon className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="h-[80px]">
-                  {/* Replace this div with an actual chart component */}
-                  <div className="w-full h-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-500 dark:text-blue-300">
-                    Revenue Chart Placeholder
-                  </div>
-                </div>
+                <ResponsiveContainer width="100%" height={80}>
+                  <BarChart data={revenueTrend}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="week"
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    />
+                    <YAxis hide />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-2 border rounded shadow">
+                              <p>{`$100: ${payload[0].value}`}</p>
+                              <p>{`$10: ${payload[1].value}`}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="hundred" stackId="a" fill="hsl(var(--chart-1))" />
+                    <Bar dataKey="ten" stackId="a" fill="hsl(var(--chart-2))" />
+                  </BarChart>
+                </ResponsiveContainer>
               </CardContent>
             </Card>
           </div>
