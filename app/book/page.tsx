@@ -39,33 +39,133 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { collection, addDoc, getDocs, query, where, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
-// Mock data for recent bookings
-const recentBookings = [
-  { id: "B001", customerName: "John Doe", route: "New York - Boston", date: "2023-06-15", status: "Confirmed", price: 120 },
-  { id: "B002", customerName: "Jane Smith", route: "Los Angeles - San Francisco", date: "2023-06-16", status: "Pending", price: 85 },
-  { id: "B003", customerName: "Bob Johnson", route: "Chicago - Detroit", date: "2023-06-17", status: "Confirmed", price: 95 },
-  { id: "B004", customerName: "Alice Brown", route: "Miami - Orlando", date: "2023-06-18", status: "Cancelled", price: 75 },
-  { id: "B005", customerName: "Charlie Wilson", route: "Seattle - Portland", date: "2023-06-19", status: "Confirmed", price: 110 },
-]
+interface Route {
+  id: string;
+  name: string;
+  price: number;
+}
+
+interface Booking {
+  id: string;
+  customerName: string;
+  route: string;
+  date: string;
+  status: string;
+  price: number;
+}
 
 export default function BookPage() {
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [newBooking, setNewBooking] = useState({
+    customerName: '',
+    route: '',
+    date: '',
+    price: 0
+  });
+  const [confirmBookingId, setConfirmBookingId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredBookings, setFilteredBookings] = useState<Booking[]>([]);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-        setSidebarOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    fetchRoutes();
+    fetchBookings();
   }, []);
+
+  const fetchRoutes = async () => {
+    const routesCollection = collection(db, 'routes');
+    const routeSnapshot = await getDocs(routesCollection);
+    const routeList = routeSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Route));
+    setRoutes(routeList);
+  };
+
+  const fetchBookings = async () => {
+    const bookingsCollection = collection(db, 'bookings');
+    const bookingSnapshot = await getDocs(bookingsCollection);
+    const bookingList = bookingSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+    setBookings(bookingList);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewBooking({ ...newBooking, [e.target.name]: e.target.value });
+  };
+
+  const handleRouteChange = (value: string) => {
+    const selectedRoute = routes.find(route => route.id === value);
+    setNewBooking({ 
+      ...newBooking, 
+      route: selectedRoute ? selectedRoute.name : '', // Store the route name
+      price: selectedRoute ? selectedRoute.price : 0
+    });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const bookingId = Math.floor(10000 + Math.random() * 90000).toString();
+      const bookingData = {
+        ...newBooking,
+        id: bookingId,
+        status: 'Pending',
+        date: date ? format(date, 'yyyy-MM-dd') : ''
+      };
+      await addDoc(collection(db, 'bookings'), bookingData);
+      setNewBooking({ customerName: '', route: '', date: '', price: 0 });
+      setDate(undefined);
+      fetchBookings();
+    } catch (error) {
+      console.error('Error adding booking: ', error);
+      alert('Failed to add booking');
+    }
+  };
+
+  const handleConfirmBooking = async () => {
+    try {
+      const bookingsCollection = collection(db, 'bookings');
+      const q = query(bookingsCollection, where("id", "==", confirmBookingId));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const bookingDoc = querySnapshot.docs[0];
+        const bookingData = bookingDoc.data();
+        await updateDoc(doc(db, 'bookings', bookingDoc.id), {
+          status: 'Confirmed'
+        });
+
+        // Add to payment history
+        await addDoc(collection(db, 'payments'), {
+          bookingId: bookingData.id,
+          customerName: bookingData.customerName,
+          route: bookingData.route, // This should already be the route name
+          date: new Date().toISOString().split('T')[0], // Current date
+          amount: bookingData.price
+        });
+
+        fetchBookings();
+        setConfirmBookingId('');
+      } else {
+        alert('Booking not found');
+      }
+    } catch (error) {
+      console.error('Error confirming booking: ', error);
+      alert('Failed to confirm booking');
+    }
+  };
+
+  useEffect(() => {
+    const filtered = bookings.filter(booking => 
+      booking.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.route.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.id.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredBookings(filtered);
+  }, [searchTerm, bookings]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900">
@@ -85,8 +185,10 @@ export default function BookPage() {
         <div className="flex items-center space-x-4">
           <Input
             type="search"
-            placeholder="Search..."
+            placeholder="Search bookings..."
             className="hidden md:block"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
           <Button variant="outline" size="icon">
             <Bell className="h-4 w-4" />
@@ -172,65 +274,67 @@ export default function BookPage() {
                       Enter the details for the new booking. Click save when you're done.
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="name" className="text-right">
-                        Name
-                      </Label>
-                      <Input id="name" className="col-span-3" />
+                  <form onSubmit={handleSubmit}>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="customerName" className="text-right">
+                          Name
+                        </Label>
+                        <Input id="customerName" name="customerName" className="col-span-3" value={newBooking.customerName} onChange={handleInputChange} />
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="route" className="text-right">
+                          Route
+                        </Label>
+                        <Select onValueChange={handleRouteChange}>
+                          <SelectTrigger className="col-span-3">
+                            <SelectValue placeholder="Select a route" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {routes.map((route) => (
+                              <SelectItem key={route.id} value={route.id}>{route.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="date" className="text-right">
+                          Date
+                        </Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "col-span-3 justify-start text-left font-normal",
+                                !date && "text-muted-foreground"
+                              )}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {date ? format(date, "PPP") : <span>Pick a date</span>}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <Calendar
+                              mode="single"
+                              selected={date}
+                              onSelect={setDate}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="price" className="text-right">
+                          Price ($)
+                        </Label>
+                        <Input id="price" name="price" type="number" className="col-span-3" value={newBooking.price} readOnly />
+                      </div>
                     </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="route" className="text-right">
-                        Route
-                      </Label>
-                      <Select>
-                        <SelectTrigger className="col-span-3">
-                          <SelectValue placeholder="Select a route" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="nyb">New York - Boston</SelectItem>
-                          <SelectItem value="lasf">Los Angeles - San Francisco</SelectItem>
-                          <SelectItem value="chd">Chicago - Detroit</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <div className="flex justify-end">
+                      <Button type="submit">Save Booking</Button>
                     </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="date" className="text-right">
-                        Date
-                      </Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant={"outline"}
-                            className={cn(
-                              "col-span-3 justify-start text-left font-normal",
-                              !date && "text-muted-foreground"
-                            )}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {date ? format(date, "PPP") : <span>Pick a date</span>}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar
-                            mode="single"
-                            selected={date}
-                            onSelect={setDate}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="price" className="text-right">
-                        Price ($)
-                      </Label>
-                      <Input id="price" type="number" className="col-span-3" placeholder="0.00" />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button type="submit">Save Booking</Button>
-                  </div>
+                  </form>
                 </DialogContent>
               </Dialog>
             </div>
@@ -246,18 +350,20 @@ export default function BookPage() {
                       <TableRow>
                         <TableHead className="w-[100px]">Booking ID</TableHead>
                         <TableHead>Customer Name</TableHead>
-                        <TableHead className="hidden md:table-cell">Route</TableHead>
-                        <TableHead className="hidden md:table-cell">Date</TableHead>
+                        <TableHead>Route</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Price</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {recentBookings.map((booking) => (
+                      {filteredBookings.map((booking) => (
                         <TableRow key={booking.id}>
                           <TableCell className="font-medium">{booking.id}</TableCell>
                           <TableCell>{booking.customerName}</TableCell>
-                          <TableCell className="hidden md:table-cell">{booking.route}</TableCell>
-                          <TableCell className="hidden md:table-cell">{booking.date}</TableCell>
+                          <TableCell>{booking.route}</TableCell>
+                          <TableCell>{booking.date}</TableCell>
+                          <TableCell>${parseFloat(booking.price.toString()).toFixed(2)}</TableCell>
                           <TableCell>
                             <Badge variant={
                               booking.status === 'Confirmed' ? 'default' :
@@ -273,6 +379,20 @@ export default function BookPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <div className="mt-6">
+              <h2 className="text-2xl font-semibold mb-4">Confirm Booking</h2>
+              <div className="flex items-center space-x-4">
+                <Input
+                  type="text"
+                  placeholder="Enter Booking ID"
+                  value={confirmBookingId}
+                  onChange={(e) => setConfirmBookingId(e.target.value)}
+                  className="max-w-xs"
+                />
+                <Button onClick={handleConfirmBooking}>Confirm Booking</Button>
+              </div>
+            </div>
           </div>
         </main>
       </div>
