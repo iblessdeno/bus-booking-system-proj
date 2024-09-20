@@ -85,3 +85,17 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License.
+
+## GitHub Contributor Globe 🌍
+
+Check out the 3D globe of contributors for this project:
+
+<iframe width="800" height="400" src="https://your-custom-globe-url.com" frameborder="0"></iframe>
+
+## 3D Model Showcase 🎨
+
+Here’s a 3D model showcasing our design:
+
+<iframe width="600" height="450" src="https://sketchfab.com/models/your-model-id/embed" frameborder="0" allow="autoplay; fullscreen; vr"></iframe>
+
+
